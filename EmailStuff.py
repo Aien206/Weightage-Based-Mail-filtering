@@ -1,115 +1,210 @@
-from __future__ import print_function
-
-import os.path
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+import os
+import pickle
+from types import NoneType
+# Gmail API utils
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-import email
-import base64
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+# for encoding/decoding messages in base64
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+# for dealing with attachement MIME types
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+from email.mime.audio import MIMEAudio
+from email.mime.base import MIMEBase
+from mimetypes import guess_type as guess_mime_type
+import re
+import string
 
-# If modifying these scopes, delete the file token.json.
+
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+our_email = 'm.umerfarooq206@gmail.com'
 
-
-
-def get_message(service, user_id, msg_id):
-
-    try:
-        message = service.users().messages().get(userId=user_id, id=msg_id, format="raw").execute()
-
-        msg_raw = base64.urlsafe_b64decode(message['raw'].encode('UTF-8'))
-
-        msg_str = email.message_from_bytes(msg_raw)
-
-        content_types = msg_str.get_content_maintype()
-
-    
-        return msg_str.get_payload()
-
-    except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
-        print(f'An error occurred: {error}')
+def search_messages(service, query):
+    result = service.users().messages().list(userId='me',q=query).execute()
+    messages = [ ]
+    if 'messages' in result:
+        messages.extend(result['messages'])
+    while 'nextPageToken' in result:
+        page_token = result['nextPageToken']
+        result = service.users().messages().list(userId='me',q=query, pageToken=page_token).execute()
+        if 'messages' in result:
+            messages.extend(result['messages'])
+    return messages
 
 
 
     
          
 
-def search_messages(service, user_id, search_string):
 
-    try:
-
-        list_ids = []
-
-        search_ids = service.users().messages().list(userId=user_id, q=search_string).execute()
-
-        try:
-            ids = search_ids["messages"]
-        except KeyError:
-            print("WARNING: the Search queried returned zero results")
-            print("returning an empty string")
-            return ""
-
-        if len(ids)>1:
-            for msg_id in ids:
-                list_ids.append(msg_id['id'])
-            return(list_ids)
-
-    except:
-        print("oopsies")
-        # TODO(developer) - Handle errors from gmail API.
-        
         
 
         
                             
-def get_service():
-    """Shows basic usage of the Gmail API.
-    Lists the user's Gmail labels.
-    """
+def gmail_authenticate():
     creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
+    # the file token.pickle stores the user's access and refresh tokens, and is
+    # created automatically when the authorization flow completes for the first time
+    if os.path.exists("token.pickle"):
+        with open("token.pickle", "rb") as token:
+            creds = pickle.load(token)
+    # if there are no (valid) credentials availablle, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
             creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-    service = build("gmail", 'v1', credentials=creds)
+        # save the credentials for the next run
+        with open("token.pickle", "wb") as token:
+            pickle.dump(creds, token)
+    return build('gmail', 'v1', credentials=creds)
 
-    return service
+# get the Gmail API service
+service = gmail_authenticate()
 
-Exit = 0
-if(Exit == 0):
-    print("Welcome to the gmail message collection system")
-    print("press 1 to enter the email collection")
-    print("type 2 to quit the system")
-    selection = input("enter:")
-    if(selection == "1"):
-        userid = input("enter user id")
-        searchstring = input("enter search string")
-        service = get_service()
-        messagesearch = search_messages(service, userid, searchstring)
-        for i in messagesearch:
-            messages = get_message(service, userid, i)
-            print(messages)
+
+def get_size_format(b, factor=1024, suffix="B"):
+    """
+    Scale bytes to its proper byte format
+    e.g:
+        1253656 => '1.20MB'
+        1253656678 => '1.17GB'
+    """
+    for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
+        if b < factor:
+            return f"{b:.2f}{unit}{suffix}"
+        b /= factor
+    return f"{b:.2f}Y{suffix}"
+
+def clean(text):
+    # clean text for creating a folder
+    return "".join(c if c.isalnum() else "_" for c in text)    
+
+
+
+
+def parse_parts(service, parts, folder_name, message):
+    """
+    Utility function that parses the content of an email partition
+    """
+    if parts:
+        for part in parts:
+            filename = part.get("filename")
+            mimeType = part.get("mimeType")
+            body = part.get("body")
+            data = body.get("data")
+            file_size = body.get("size")
+            part_headers = part.get("headers")
+            if part.get("parts"):
+                # recursively call this function when we see that a part
+                # has parts inside
+                parse_parts(service, part.get("parts"), folder_name, message)
+            if mimeType == "text/plain":
+                # if the email part is text plain
+                if data:
+                    text = urlsafe_b64decode(data).decode()
+                    return text
+            elif mimeType == "text/html":
+
+                text = urlsafe_b64decode(data).decode()
+                return text
+                # if the email part is an HTML content
+                # save the HTML file and optionally open it in the browser
+
+                
+
+    
+                    
+
+def read_message(service, message):
+    """
+    This function takes Gmail API `service` and the given `message_id` and does the following:
+        - Downloads the content of the email
+        - Prints email basic information (To, From, Subject & Date) and plain/text parts
+        - Creates a folder for each email based on the subject
+        - Downloads text/html content (if available) and saves it under the folder created as index.html
+        - Downloads any file that is attached to the email and saves it in the folder created
+    """
+    msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
+    # parts can be the message body, or attachments
+    payload = msg['payload']
+    headers = payload.get("headers")
+    parts = payload.get("parts")
+    folder_name = "email"
+    CombString = ""
+    has_subject = False
+    if headers:
+        # this section prints email basic info & creates a folder for the email
+        for header in headers:
+           
+            name = header.get("name")
+            value = header.get("value")
+            if name.lower() == 'from':
+                CombString = CombString + value
+               # we print the From address
+               # print("From:", value)
+            if name.lower() == "to":
+                CombString = CombString + value
+                # we print the To address
+                #print("To:", value)
+            if name.lower() == "subject":
+                CombString = CombString + value
+                # make our boolean True, the email has "subject"
+               # has_subject = True
+                # make a directory with the name of the subject
+                
+                # we will also handle emails with the same subject name
+                
+                
+                #print("Subject:", value)
+            if name.lower() == "date":
+                CombString = CombString + value
+                # we print the date when the message was sent
+                #print("Date:", value)
+    
+   
         
+    text = parse_parts(service, parts, folder_name, message)
+    if(type(text ) != NoneType):
+        CombString = CombString + text
+    
+    res = re.sub('['+string.punctuation+']', '', CombString).split()
+    
+    return res
+                                  
+def EmailCollect():
+    results = search_messages(service, "is:unread newer_than:1d")
+    print(results)
+    print(f"Found {len(results)} results.")
+    Mails = []
+    for msg in results:
+        res = read_message(service, msg)
+        Mails.append(res)
+    print(results)
+    return res    
+    
+
+def DetWeight(res):
+    Weights = []
+    for msg in res:
+        
+
+    
+    
+    return
+
+
+
+gmail_authenticate
+EmailCollect()
+# get emails that match the query you specify
+
+    
+    
+
 
 
 
