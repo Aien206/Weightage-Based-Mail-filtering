@@ -1,9 +1,12 @@
-# Weightage-Based-Mail-filtering
+# Weightage-Based-Mail-filtering 
+ 
+
+
 
 
 ## Introduction
 
-This project was inspired by the works of author Carl Newport to attempt to solve the problem of wading through dozens of emails to loook for something important, especially for university students who frankly dont have the time or attention span to do so. Coded entirely in python and put together with the software equivalent of duct tape, it uses the unintelligable Gmail API to print a list of gmail urls in order of priority.
+This project was inspired by the works of author Carl Newport to attempt to solve the problem of wading through dozens of emails to loook for something important, especially for university students who frankly dont have the time or attention span to do so. Coded entirely in python and put together with the software equivalent of duct tape, it uses the unintelligable Gmail API to print a list of gmail urls in order of priority. 
 
 ## Working
 
@@ -18,7 +21,7 @@ For now the code pulls a list of recent emails, compares it with a list of keywo
 
 ### Usage
 -Run gmailstuff.py \
--open the printed urls\ 
+-open the printed urls 
 
 ## Further Work
 
