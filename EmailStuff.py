@@ -31,6 +31,7 @@ def search_messages(service, query):
         result = service.users().messages().list(userId='me',q=query, pageToken=page_token).execute()
         if 'messages' in result:
             messages.extend(result['messages'])
+        print(messages)    
     return messages
 
 
@@ -183,23 +184,53 @@ def EmailCollect():
     for msg in results:
         res = read_message(service, msg)
         Mails.append(res)
-    print(results)
-    return res    
+    
+    return Mails, results   
     
 
-def DetWeight(res):
-    Weights = []
-    for msg in res:
+
+Keyword =  ["Urgent", "assignment", "class", "postponed", "cancelled", "ASAP", "as soon as possible", "research", "project", "timing"]  
+
+def DetWeight(res, messages):
+    SequencedMail = []
+    DMail = []
+    maxval = -5
+    for i in range(len(messages)):
+        value =  set(res[i]).intersection(Keyword)
+        print(value)
+        DMail.append([messages[i], len(value)])
         
+        
+            
+    SequencedMail = sorted(DMail, key=lambda x: x[1], reverse=True)
+    FinalList = [i[0] for i in SequencedMail]
+    #print(FinalList)
+    return FinalList    
 
+def PrintList(FinalList):
+    if(len(FinalList) > 10):
+        i = 0;
+        while(i < 10):
+            print("https://mail.google.com/mail/u/0/#inbox/" + str(FinalList[i]["id"]))
+            i = i + 1;
+    else:
+        i = 0;
+        while(i < len(FinalList)):
+            print("https://mail.google.com/mail/u/0/#inbox/" + str(FinalList[i]["id"]))
+            i = i + 1;
+        
     
     
-    return
+    return 0;
+    
 
 
 
 gmail_authenticate
-EmailCollect()
+res, messages = EmailCollect()
+FinalList = DetWeight(res, messages)
+PrintList(FinalList)
+
 # get emails that match the query you specify
 
     
